@@ -1,0 +1,41 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./focus_management.db"
+}
+
+generator client {
+  provider             = "prisma-client-py"
+  recursive_type_depth = 5
+}
+
+model Setting {
+  id               Int     @id @default(1)
+  focus_preset     Int     @default(25)
+  short_break      Int     @default(5)
+  long_break       Int     @default(15)
+  daily_goal_hours Float   @default(2.0)
+  dark_mode        Boolean @default(false)
+  sound_enabled    Boolean @default(true)
+}
+
+model FocusSession {
+  id               Int      @id @default(autoincrement())
+  timestamp        DateTime @default(now())
+  duration_minutes Int
+  template_used    String   @default("Custom")
+  completed        Boolean  @default(true)
+}
+
+model Task {
+  id            Int      @id @default(autoincrement())
+  title         String
+  due_date      DateTime
+  completed     Boolean  @default(false)
+  time_estimate Int      @default(25)
+  priority      String   @default("Medium")
+}
+
+model BlockedSite {
+  id     Int    @id @default(autoincrement())
+  domain String @unique
+}
