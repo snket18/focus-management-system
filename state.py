@@ -24,7 +24,8 @@ AMBIENT_AUDIO_URLS = {
 NOTIFICATION_SOUND_URL = "https://www.soundjay.com/buttons/sounds/button-10.mp3"
 
 class TimerState:
-    def __init__(self):
+    def __init__(self, user_id: int | None = None):
+        self.user_id = user_id
         self.time_remaining = 1500  # 25 minutes default in seconds
         self.total_duration = 1500
         self.is_running = False
@@ -48,7 +49,23 @@ class TimerState:
             await db.connect()
             
         try:
-            settings = await db.setting.find_first()
+            if self.user_id:
+                settings = await db.setting.find_unique(where={"userId": self.user_id})
+                if not settings:
+                    settings = await db.setting.create(
+                        data={
+                            "userId": self.user_id,
+                            "focus_preset": 25,
+                            "short_break": 5,
+                            "long_break": 15,
+                            "daily_goal_hours": 2.0,
+                            "dark_mode": False,
+                            "sound_enabled": True
+                        }
+                    )
+            else:
+                settings = await db.setting.find_first()
+                
             if settings:
                 self.sound_enabled = settings.sound_enabled
                 # Apply preset defaults
@@ -59,7 +76,10 @@ class TimerState:
                 elif self.active_preset == "Quick Focus":
                     self.set_preset(15)
             
-            sites = await db.blockedsite.find_many()
+            if self.user_id:
+                sites = await db.blockedsite.find_many(where={"userId": self.user_id})
+            else:
+                sites = await db.blockedsite.find_many()
             self.blocked_sites_list = [site.domain for site in sites]
         except Exception as e:
             print(f"Error loading configuration in TimerState: {e}")
@@ -112,7 +132,8 @@ class TimerState:
                         data={
                             "duration_minutes": duration_mins,
                             "template_used": self.active_preset,
-                            "completed": True
+                            "completed": True,
+                            "userId": self.user_id
                         }
                     )
                     session_saved = True
@@ -121,7 +142,10 @@ class TimerState:
 
                 # Transition to break
                 try:
-                    settings = await db.setting.find_first()
+                    if self.user_id:
+                        settings = await db.setting.find_unique(where={"userId": self.user_id})
+                    else:
+                        settings = await db.setting.find_first()
                     break_mins = settings.short_break if settings and duration_mins < 50 else (settings.long_break if settings else 15)
                 except:
                     break_mins = 5
@@ -133,7 +157,10 @@ class TimerState:
             else:
                 # Transition back to focus
                 try:
-                    settings = await db.setting.find_first()
+                    if self.user_id:
+                        settings = await db.setting.find_unique(where={"userId": self.user_id})
+                    else:
+                        settings = await db.setting.find_first()
                     focus_mins = settings.focus_preset if settings else 25
                 except:
                     focus_mins = 25

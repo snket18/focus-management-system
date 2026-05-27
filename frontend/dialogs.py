@@ -37,7 +37,7 @@ def build_day_dialog(page, date_obj):
             start_of_day = datetime.datetime.combine(date_obj, datetime.time.min)
             end_of_day = datetime.datetime.combine(date_obj, datetime.time.max)
             try:
-                tasks = await task_controller.get_tasks_for_date_range(start_of_day, end_of_day)
+                tasks = await task_controller.get_tasks_for_date_range(page.user_id, start_of_day, end_of_day)
                 if not tasks:
                     with task_list_el:
                         ui.label("No tasks scheduled for this day.").classes('text-stone-400 italic text-sm py-4 text-center w-full')
@@ -130,7 +130,7 @@ def build_day_dialog(page, date_obj):
             
             due_datetime = datetime.datetime.combine(date_obj, datetime.time.min)
             try:
-                await task_controller.create_task(title, due_datetime, priority, estimate)
+                await task_controller.create_task(page.user_id, title, due_datetime, priority, estimate)
                 ui.notify("Task added successfully!", type="positive")
             except Exception as e:
                 ui.notify(f"Error adding task: {e}", type="warning")

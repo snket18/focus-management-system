@@ -1,17 +1,18 @@
 import datetime
 import calendar
 import json
-from nicegui import ui
+from nicegui import ui, app
 
 from state import TimerState, AMBIENT_AUDIO_URLS, NOTIFICATION_SOUND_URL
 from backend import task_controller, session_controller, settings_controller
 from frontend import dialogs, timer_view, calendar_view, analytics_view, settings_view
 
 class FocusPage:
-    def __init__(self, get_timer_svg_func, HEAD_HTML):
+    def __init__(self, get_timer_svg_func, HEAD_HTML, user_id: int):
         self.get_timer_svg = get_timer_svg_func
         self.HEAD_HTML = HEAD_HTML
-        self.state = TimerState()
+        self.user_id = user_id
+        self.state = TimerState(user_id=user_id)
         
         # State indicators
         self.current_calendar_date = {
@@ -103,6 +104,11 @@ class FocusPage:
                     on_click=lambda: self.toggle_dark_theme()
                 ).props('flat round color=white')
 
+                ui.button(
+                    icon='logout', 
+                    on_click=self.logout
+                ).props('flat round color=white tooltip="Logout"')
+
         # 4. Tab selection structure
         with ui.tabs().classes('w-full') as main_tabs:
             timer_tab = ui.tab('Timer', icon='timer')
@@ -134,10 +140,14 @@ class FocusPage:
         ui.timer(1.0, self.timer_tick_loop)
 
     # --- APP EVENT HANDLERS ---
+    def logout(self):
+        app.storage.user.clear()
+        ui.navigate.to('/login')
+
     async def toggle_dark_theme(self):
         self.dark_mode.toggle()
         try:
-            settings = await settings_controller.get_app_settings()
+            settings = await settings_controller.get_app_settings(self.user_id)
             if settings:
                 await settings_controller.update_dark_mode(settings.id, self.dark_mode.value)
         except Exception as e:
@@ -251,7 +261,7 @@ class FocusPage:
                 else:
                     month_end = datetime.datetime(year, month + 1, 1, 23, 59, 59) - datetime.timedelta(days=1)
                     
-                tasks_in_month = await task_controller.get_tasks_for_date_range(month_start, month_end)
+                tasks_in_month = await task_controller.get_tasks_for_date_range(self.user_id, month_start, month_end)
             except Exception as e:
                 print(f"Error fetching monthly tasks: {e}")
                 tasks_in_month = []
@@ -303,8 +313,8 @@ class FocusPage:
         today_end = datetime.datetime.combine(today, datetime.time.max)
         
         try:
-            overdue_tasks = await task_controller.get_overdue_tasks(today_start)
-            today_tasks = await task_controller.get_tasks_for_date_range(today_start, today_end)
+            overdue_tasks = await task_controller.get_overdue_tasks(self.user_id, today_start)
+            today_tasks = await task_controller.get_tasks_for_date_range(self.user_id, today_start, today_end)
         except Exception as e:
             print(f"Error fetching dashboard tasks: {e}")
             overdue_tasks = []
@@ -401,14 +411,14 @@ class FocusPage:
         try:
             # Today Focus
             today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
-            sessions_today = await session_controller.get_completed_sessions_since(today_start)
+            sessions_today = await session_controller.get_completed_sessions_since(self.user_id, today_start)
             today_mins = sum(s.duration_minutes for s in sessions_today)
             today_hours_val = round(today_mins / 60.0, 1)
             self.today_focus_h.text = f"{today_hours_val} hrs"
             self.focused_completed_val.text = f"{today_hours_val} hrs"
             
             # Streak calculations
-            all_completed_sessions = await session_controller.get_all_completed_sessions(order="desc")
+            all_completed_sessions = await session_controller.get_all_completed_sessions(self.user_id, order="desc")
             unique_dates = sorted(list(set(s.timestamp.date() for s in all_completed_sessions)), reverse=True)
             streak = 0
             if unique_dates:
@@ -435,7 +445,7 @@ class FocusPage:
             self.streak_label.text = f"🔥 Streak: {streak}d"
             
             # Settings bindings
-            settings = await settings_controller.get_app_settings()
+            settings = await settings_controller.get_app_settings(self.user_id)
             daily_target_h = settings.daily_goal_hours if settings else 2.0
             self.daily_goal_label.text = f"Daily Target: {daily_target_h} hrs"
             self.target_goal_val.text = f"{daily_target_h} hrs"
@@ -451,13 +461,13 @@ class FocusPage:
             today = datetime.date.today()
             start_of_week = today - datetime.timedelta(days=today.weekday())
             start_of_week_dt = datetime.datetime.combine(start_of_week, datetime.time.min)
-            sessions_week = await session_controller.get_completed_sessions_since(start_of_week_dt)
+            sessions_week = await session_controller.get_completed_sessions_since(self.user_id, start_of_week_dt)
             week_mins = sum(s.duration_minutes for s in sessions_week)
             self.week_focus_h.text = f"{round(week_mins / 60.0, 1)} hrs"
 
             # Monthly Focus
             start_of_month = datetime.datetime(today.year, today.month, 1, 0, 0, 0)
-            sessions_month = await session_controller.get_completed_sessions_since(start_of_month)
+            sessions_month = await session_controller.get_completed_sessions_since(self.user_id, start_of_month)
             month_mins = sum(s.duration_minutes for s in sessions_month)
             self.month_focus_h.text = f"{round(month_mins / 60.0, 1)} hrs"
 
@@ -465,7 +475,7 @@ class FocusPage:
             last_7_days = [today - datetime.timedelta(days=i) for i in range(6, -1, -1)]
             focus_hours_7_days = []
             for d in last_7_days:
-                day_sessions = await session_controller.get_sessions_for_day(d)
+                day_sessions = await session_controller.get_sessions_for_day(self.user_id, d)
                 day_mins = sum(s.duration_minutes for s in day_sessions)
                 focus_hours_7_days.append(round(day_mins / 60.0, 2))
 
@@ -482,8 +492,8 @@ class FocusPage:
             self.chart1.update()
 
             # Chart 2: Task Completion rates
-            completed_tasks = await task_controller.get_task_count(completed=True)
-            incomplete_tasks = await task_controller.get_task_count(completed=False)
+            completed_tasks = await task_controller.get_task_count(self.user_id, completed=True)
+            incomplete_tasks = await task_controller.get_task_count(self.user_id, completed=False)
             
             self.chart2.options.clear()
             self.chart2.options.update({
@@ -492,7 +502,8 @@ class FocusPage:
                 'legend': {'bottom': '0%', 'left': 'center'},
                 'series': [{
                     'type': 'pie',
-                    'radius': ['40%', '75%'],
+                    'radius': ['35%', '65%'],
+                    'center': ['50%', '55%'],
                     'avoidLabelOverlap': False,
                     'itemStyle': {'borderRadius': 6, 'borderColor': '#fff', 'borderWidth': 1},
                     'data': [
@@ -506,7 +517,7 @@ class FocusPage:
 
             # Chart 3: Focus Session hourly density distribution
             hour_density = [0] * 24
-            all_sessions_density = await session_controller.get_all_completed_sessions()
+            all_sessions_density = await session_controller.get_all_completed_sessions(self.user_id)
             for s in all_sessions_density:
                 h = s.timestamp.hour
                 hour_density[h] += s.duration_minutes / 60.0
@@ -536,7 +547,7 @@ class FocusPage:
     # --- CONFIGURATIONS AND UTILITIES MANAGEMENT ---
     async def load_app_settings_to_inputs(self):
         try:
-            settings = await settings_controller.get_app_settings()
+            settings = await settings_controller.get_app_settings(self.user_id)
             if settings:
                 self.focus_len_in.value = settings.focus_preset
                 self.short_break_in.value = settings.short_break
@@ -554,7 +565,7 @@ class FocusPage:
         sound_enabled = self.sound_enabled_switch.value
         
         try:
-            settings = await settings_controller.get_app_settings()
+            settings = await settings_controller.get_app_settings(self.user_id)
             if settings:
                 await settings_controller.save_configurations(
                     settings.id, focus_len, short_break, long_break, daily_goal, sound_enabled
@@ -572,7 +583,7 @@ class FocusPage:
 
     async def trigger_data_export(self):
         try:
-            data = await settings_controller.get_export_payload()
+            data = await settings_controller.get_export_payload(self.user_id)
             
             export_payload = {
                 "metadata": {
@@ -623,7 +634,7 @@ class FocusPage:
     async def refresh_blocked_domains_list(self):
         self.blocked_domains_list_container.clear()
         try:
-            domains = await settings_controller.get_blocked_sites()
+            domains = await settings_controller.get_blocked_sites(self.user_id)
             self.state.blocked_sites_list = [d.domain for d in domains]
             
             if not domains:
@@ -645,12 +656,12 @@ class FocusPage:
         domain = domain.replace("https://", "").replace("http://", "").replace("www.", "").strip("/")
         
         try:
-            exists = await settings_controller.check_blocked_site_exists(domain)
+            exists = await settings_controller.check_blocked_site_exists(self.user_id, domain)
             if exists:
                 ui.notify("Domain already exists on blocklist.", type="warning")
                 return
                 
-            await settings_controller.add_blocked_site(domain)
+            await settings_controller.add_blocked_site(self.user_id, domain)
             ui.notify(f"Added {domain} to blocklist.", type="success")
             self.block_domain_in.value = ""
             await self.refresh_blocked_domains_list()

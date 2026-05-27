@@ -9,14 +9,26 @@ generator client {
   output               = "./.venv/lib/python3.14/site-packages/prisma"
 }
 
+model User {
+  id            Int            @id @default(autoincrement())
+  username      String         @unique
+  password      String         // Salted PBKDF2-SHA256 hash
+  tasks         Task[]
+  focusSessions FocusSession[]
+  setting       Setting?
+  blockedSites  BlockedSite[]
+}
+
 model Setting {
-  id               Int     @id @default(1)
+  id               Int     @id @default(autoincrement())
   focus_preset     Int     @default(25)
   short_break      Int     @default(5)
   long_break       Int     @default(15)
   daily_goal_hours Float   @default(2.0)
   dark_mode        Boolean @default(false)
   sound_enabled    Boolean @default(true)
+  userId           Int?    @unique
+  user             User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model FocusSession {
@@ -25,6 +37,8 @@ model FocusSession {
   duration_minutes Int
   template_used    String   @default("Custom")
   completed        Boolean  @default(true)
+  userId           Int?
+  user             User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Task {
@@ -34,9 +48,15 @@ model Task {
   completed     Boolean  @default(false)
   time_estimate Int      @default(25)
   priority      String   @default("Medium")
+  userId           Int?
+  user             User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model BlockedSite {
   id     Int    @id @default(autoincrement())
-  domain String @unique
+  domain String
+  userId Int?
+  user   User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, domain])
 }
